@@ -165,6 +165,20 @@ FILAMENT_TAG_WRITE_OPENSPOOL [CHANNEL=<0-3>] TYPE=<material> [BRAND=<name>]
 **Weight Tracking:**
 - `WEIGHT` - Initial spool weight in grams (optional)
 
+**Material Density Defaults:**
+If no density parameter is provided, one of the following will be used, based on the material type.
+
+| Material | Density (g/cm³) |
+|----------|-----------------|
+| PLA      | 1.24            |
+| PETG     | 1.27            |
+| ABS      | 1.04            |
+| TPU      | 1.21            |
+| PVA      | 1.19            |
+| NYLON    | 1.14            |
+| ASA      | 1.07            |
+| PC       | 1.20            |
+
 **Examples:**
 ```gcode
 # Basic PLA tag
@@ -182,18 +196,6 @@ FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PLA BRAND="Generic" SUBTYPE="Silk" C
 # Tag with initial weight tracking (1kg spool)
 FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PETG BRAND="Generic" COLOR=FF5500 WEIGHT=1000 MIN_TEMP=230 MAX_TEMP=250 BED_MIN_TEMP=70 BED_MAX_TEMP=85
 ```
-
-**Material Density Defaults:**
-| Material | Density (g/cm³) |
-|----------|-----------------|
-| PLA      | 1.24            |
-| PETG     | 1.27            |
-| ABS      | 1.04            |
-| TPU      | 1.21            |
-| PVA      | 1.19            |
-| NYLON    | 1.14            |
-| ASA      | 1.07            |
-| PC       | 1.20            |
 
 **Safety:** Only works with NTAG tags. Will reject M1 (Snapmaker) tags to prevent corruption.
 
@@ -229,7 +231,9 @@ The extended firmware includes a web-based RFID Tag Manager accessible at `/rfid
 - **Visual tag status** - See all 4 extruders at a glance
 - **Create tags** - Write new NTAG tags with OpenSpool format
 - **Update tags** - Modify existing NTAG tag data
-- **Erase tags** - Clear NTAG tags for reprogramming
+- **Export tags** - Export existing tag data in json format
+- **Import tags** - Import json tag data to selected extruder
+- **Erase tags** - Clear NTAG tags for reprogramming (not needed if updating a tag)
 - **Real-time updates** - Automatic status refresh via Moonraker websocket
 - **Color picker** - Visual color selection with transparency support
 - **Multicolor support** - Add up to 5 colors for rainbow/multicolor filament
