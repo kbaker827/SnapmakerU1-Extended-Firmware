@@ -5,6 +5,7 @@ import copy
 from . import filament_protocol
 
 SPOOLMAN_PROXY_ENDPOINT_BASE = "klippy/spoolman_proxy"
+FILAMENT_INFO_DIR = "/oem/printer_data/config/extended/rfid"
 
 class AFCLaneState:
     EMPTY = "empty"
@@ -30,11 +31,15 @@ class AFCLane:
         self.print_task_config = None
         self.toolhead_sensor = None
         self.filament_feed = None
+        self.filament_detect = None
 
         self.pending_refresh = False
         self.pending_spool_id = None
 
         self.cached_spool_weight = 1000
+
+        self.last_rfid_uid = None
+        self.last_state = {}
 
         self.printer.register_event_handler("klippy:connect", self._handle_connect)
 
@@ -56,6 +61,11 @@ class AFCLane:
     def _handle_connect(self):
         try:
             self.print_task_config = self.printer.lookup_object("print_task_config")
+        except:
+            pass
+
+        try:
+            self.filament_detect = self.printer.lookup_object("filament_detect")
         except:
             pass
 
@@ -105,6 +115,60 @@ class AFCLane:
         except Exception as e:
             logging.error(f"Failed to clear spool data: {e}")
             return False
+
+    def _rfid_uid(self, state):
+        try:
+            if not state.get('loaded', True):
+                return None
+            card_uid = state.get('detect', {}).get('CARD_UID', None)
+            if not card_uid:
+                return None
+            filename = ''.join(f"{byte:02X}" for byte in card_uid)
+            return filename
+        except:
+            return None
+
+    def _load_rfid_state(self, filename):
+        try:
+            if not filename:
+                return None
+            filepath = f"{FILAMENT_INFO_DIR}/{filename}.json"
+            if os.path.exists(filepath):
+                with open(filepath, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return None
+
+    def _save_rfid_state(self, filename, spool):
+        try:
+            if not filename:
+                return False
+
+            filepath = f"{FILAMENT_INFO_DIR}/{filename}.json"
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'w') as f:
+                json.dump(spool, f, indent=2)
+
+            self.gcode.respond_info(f"Persisted RFID state for lane {self.name}, card UID {filename}")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to persist RFID state for lane {self.name}, card UID {filename}: {e}")
+            return False
+
+    def _apply_rfid_state(self, filename, spool):
+        spool_id = spool.get('spool_id', 0)
+
+        self._set_filament_config(
+            vendor=spool.get('vendor', 'NONE'),
+            type=spool.get('type', 'NONE'),
+            sub_type=spool.get('subtype', 'NONE'),
+            color=spool.get('color', 'FFFFFFFF'),
+            spool_id=spool_id
+        )
+
+        self.gcode.respond_info(f"Restored RFID state for lane {self.name}, card UID {filename}, spool ID {spool_id}")
+        self._refresh_spool(spool_id)
 
     cmd_SET_SPOOL_ID_help = "Set spool ID and fetch filament data from Spoolman"
     def cmd_SET_SPOOL_ID(self, gcmd):
@@ -248,6 +312,12 @@ class AFCLane:
             pass
 
         try:
+            detect_status = self.filament_detect.get_status()
+            state['detect'] = dict(enumerate(detect_status.get('info', []))).get(self.lane_index, False)
+        except:
+            state['detect'] = {}
+
+        try:
             status = self.toolhead_sensor.get_status(eventtime)
             state['tool_loaded'] = status.get('filament_detected', True)
         except:
@@ -255,10 +325,34 @@ class AFCLane:
 
         return state
 
+    def _get_and_update_state(self, eventtime=None):
+        state = self._get_state(eventtime)
+        rfid_uid = self._rfid_uid(state)
+
+        # Ignore all RFID codepaths if not RFID is detected
+        if not rfid_uid:
+            self.last_state = {}
+            self.last_rfid_uid = None
+            return state
+
+        if rfid_uid != self.last_rfid_uid:
+            spool = self._load_rfid_state(rfid_uid)
+            if spool:
+                self._apply_rfid_state(rfid_uid, spool)
+                state = self._get_state(eventtime)
+        else:
+            spool = state.get('spool', {})
+            if spool != self.last_state.get('spool', {}):
+                self._save_rfid_state(rfid_uid, spool)
+
+        self.last_rfid_uid = rfid_uid
+        self.last_state = state
+        return state
+
     def get_status(self, eventtime=None):
         response = {}
 
-        state = self._get_state(eventtime)
+        state = self._get_and_update_state(eventtime)
         spool = state.get('spool', {})
 
         response['name'] = self.name
