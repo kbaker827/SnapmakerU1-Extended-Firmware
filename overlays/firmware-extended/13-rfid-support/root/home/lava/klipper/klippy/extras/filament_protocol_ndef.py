@@ -9,6 +9,19 @@ NDEF_ERR = -1
 NDEF_PARAMETER_ERR = -2
 NDEF_NOT_FOUND_ERR = -3
 
+# Material density defaults (g/cm³)
+MATERIAL_DENSITIES = {
+    'PLA': 1.24,
+    'PETG': 1.27,
+    'ABS': 1.04,
+    'TPU': 1.21,
+    'PVA': 1.19,
+    'NYLON': 1.14,
+    'ASA': 1.07,
+    'PC': 1.20
+}
+
+
 def xxd_dump(data, max_lines=16):
     if isinstance(data, list):
         data = bytes(data)
@@ -172,14 +185,7 @@ def parse_color_hex(value):
 
 def _get_default_density(material_type):
     """Get default density for common filament types in g/cm³."""
-    density_map = {
-        'PLA': 1.24,
-        'PETG': 1.27,
-        'ABS': 1.04,
-        'TPU': 1.21,
-        'PVA': 1.19,
-    }
-    return density_map.get(material_type.upper(), 1.24)  # Default to PLA
+    return MATERIAL_DENSITIES.get(material_type.upper(), 1.24)  # Default to PLA
 
 def openspool_parse_payload(payload, card_uid=[]):
     if None == payload or not isinstance(payload, (bytes, bytearray)):

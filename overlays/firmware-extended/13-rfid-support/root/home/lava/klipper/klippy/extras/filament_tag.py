@@ -10,18 +10,6 @@ from . import filament_protocol
 from . import filament_protocol_ndef
 from . import fm175xx_reader
 
-# Material density defaults (g/cm³) for OpenSpool format
-MATERIAL_DENSITIES = {
-    'PLA': 1.24,
-    'PETG': 1.27,
-    'ABS': 1.04,
-    'TPU': 1.21,
-    'PVA': 1.19,
-    'NYLON': 1.14,
-    'ASA': 1.07,
-    'PC': 1.20
-}
-
 FILAMENT_DT_OK = 0
 
 class FilamentTag:
@@ -107,7 +95,7 @@ class FilamentTag:
             raise gcmd.error(f"Invalid COLOR '{color_str}', must be 6-digit hex (e.g., FF0000)")
 
         # Validate material type
-        valid_types = list(MATERIAL_DENSITIES.keys())
+        valid_types = list(filament_protocol_ndef.MATERIAL_DENSITIES.keys())
         if material_type not in valid_types:
             raise gcmd.error(f"Invalid TYPE '{material_type}', valid types: {', '.join(valid_types)}")
 
@@ -115,7 +103,7 @@ class FilamentTag:
         subtype = gcmd.get('SUBTYPE', None)
         density = gcmd.get_float('DENSITY', None, minval=0.1, maxval=5.0)
         if density is None:
-            density = MATERIAL_DENSITIES.get(material_type, 1.24)
+            density = filament_protocol_ndef.MATERIAL_DENSITIES.get(material_type, 1.24)
 
         # Alpha transparency (00-FF hex)
         alpha_str = gcmd.get('ALPHA', 'FF').upper().lstrip('#')
