@@ -135,14 +135,16 @@ FILAMENT_TAG_WRITE [CHANNEL=<0-3>] DATA=<base64>
 
 **Parameters:**
 - `CHANNEL` - Filament channel (0-3, default: 0)
-- `DATA` - Complete NDEF message (CC + TLV + record + terminator) as URL-safe base64 encoded string
+- `DATA` - Tag data starting from page 4 (TLV + payload, no CC) as URL-safe base64 encoded string.
 
 **Example:**
 ```gcode
-FILAMENT_TAG_WRITE CHANNEL=0 DATA=4RBtAAMSElAQYXBwbGljYXRpb24vanNvbnsicHJvdG9jb2wiOiJvcGVuc3Bvb2wi...
+FILAMENT_TAG_WRITE CHANNEL=0 DATA=AxISUBBhcHBsaWNhdGlvbi9qc29u...
 ```
 
-**Safety:** Only works with NTAG tags. Will reject M1 (Snapmaker) tags to prevent corruption.
+**Safety:**
+- Only works with NTAG tags. Will reject M1 (Snapmaker) tags to prevent corruption.
+- Automatically writes CC bytes (page 3) if they are blank or correctable. CC is OTP (One-Time Programmable) — bits can only be set (0→1), never cleared. If the existing CC has extra bits set that would prevent reaching the correct value, a warning is returned and the CC write is skipped. Fresh blank tags are initialized automatically.
 
 **Typical usage:** The RFID Manager web UI handles encoding automatically. This command is the low-level transport mechanism.
 
@@ -167,7 +169,7 @@ FILAMENT_TAG_ERASE CHANNEL=0 CONFIRM=1
 **Safety:**
 - Only works with NTAG tags (will reject M1 tags)
 - Requires CONFIRM=1 parameter to prevent accidental erasure
-- Writes empty NDEF structure, leaving tag ready for new data
+- Writes CC bytes (page 3) if blank or correctable, then writes empty NDEF TLV at page 4. This ensures fresh blank tags become NDEF-valid after erase.
 
 ## Web UI - RFID Tag Manager
 

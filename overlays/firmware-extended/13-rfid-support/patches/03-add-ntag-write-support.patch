@@ -44,10 +44,9 @@
 +        return ret
 +
 +    # Reader-A: NTAG215, write user data area
-+    # Note: NDEF data including CC should start at page 3, not page 4
-+    # Page 3 contains Capability Container (CC): E1 10 xx 00
-+    # Page 4+ contains TLV records
-+    def __reader_a_ntag215_write_user_data(self, data:list, start_page=3, retry_times=3) -> int:
++    # Page 3 (CC) is OTP - never write to it from this firmware.
++    # Page 4+ contains TLV records (NDEF data)
++    def __reader_a_ntag215_write_user_data(self, data:list, start_page=4, retry_times=3) -> int:
 +        if len(data) > (FM175XX_NTAG215_USER_END_PAGE - start_page + 1) * FM175XX_NTAG215_BYTES_PER_PAGE:
 +            logging.error("NTAG write data too large: %d bytes", len(data))
 +            return FM175XX_CARD_WRITE_ERR
@@ -76,13 +75,14 @@
 +
 +        return FM175XX_OK
 +
-+    def write_ntag_data(self, channel, data, retry_times=3):
++    def write_ntag_data(self, channel, data, start_page=4, retry_times=3):
 +        """
 +        Write data to NTAG tag on specified channel.
 +        This is a synchronous blocking operation that:
 +        1. Selects the channel
 +        2. Initializes and activates the reader
-+        3. Writes the data to the tag
++        3. Writes the data starting at start_page (default: page 4)
++        Note: Page 3 (CC) is OTP on NTAG tags - do not write to it.
 +        Returns: FM175XX_OK on success, error code on failure
 +        """
 +        if channel < 0 or channel >= FM175XX_CHANNEL_NUMS:
@@ -125,7 +125,7 @@
 +                return FM175XX_CARD_ACTIVATE_ERR
 +
 +            # Write the data
-+            ret = self.__reader_a_ntag215_write_user_data(data)
++            ret = self.__reader_a_ntag215_write_user_data(data, start_page=start_page)
 +
 +            # Disable carrier wave
 +            self.__set_carrier_wave(FM175XX_CW_DISABLE)

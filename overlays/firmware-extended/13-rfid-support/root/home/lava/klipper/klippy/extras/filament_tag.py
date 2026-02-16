@@ -5,6 +5,12 @@ from . import fm175xx_reader
 FILAMENT_DT_OK = 0
 FILAMENT_DT_STATE_IDLE = 0
 
+# NTAG Capability Container expected values (page 3, 4 bytes)
+# Format: [NDEF magic, version, capacity, access]
+NTAG215_CC = [0xE1, 0x10, 0x3F, 0x00]  # 504 bytes user capacity
+NTAG216_CC = [0xE1, 0x10, 0x6D, 0x00]  # 872 bytes user capacity
+VALID_CC_VALUES = (NTAG215_CC, NTAG216_CC)
+
 class FilamentTag:
     """Klipper module for writing and erasing NTAG filament tags."""
 
@@ -52,15 +58,76 @@ class FilamentTag:
             self.reactor.pause(self.reactor.monotonic() + 0.1)
         return False
 
+    def _ensure_cc_bytes(self, channel, info):
+        """Ensure CC bytes (page 3) are correct for an NTAG tag.
+
+        CC is OTP (One-Time Programmable): hardware performs new = old | written,
+        so bits can only transition 0->1. We check whether writing the target CC
+        would produce the correct result before attempting.
+
+        Returns:
+            (success: bool, warning: str or None)
+            success is False if CC is unrecoverably corrupted or write failed.
+        """
+        current_cc = info.get('TAG_CC', [])
+        if not current_cc or len(current_cc) != 4:
+            return True, "CC bytes not available from tag read; skipping CC check"
+
+        # Already correct — no write needed
+        if current_cc in VALID_CC_VALUES:
+            return True, None
+
+        # Determine target CC from capacity byte (index 2)
+        if current_cc[2] == 0x6D:
+            target_cc = NTAG216_CC
+        else:
+            target_cc = NTAG215_CC
+
+        # Simulate OTP write: result = current | target
+        result_cc = [current_cc[i] | target_cc[i] for i in range(4)]
+
+        if result_cc != target_cc:
+            current_hex = ' '.join(f'{b:02X}' for b in current_cc)
+            target_hex = ' '.join(f'{b:02X}' for b in target_cc)
+            result_hex = ' '.join(f'{b:02X}' for b in result_cc)
+            warning = (
+                f"CC [{current_hex}] cannot be corrected to [{target_hex}]. "
+                f"OTP write would produce [{result_hex}]. "
+                f"Use a fresh tag for correct NDEF compatibility.")
+            logging.warning("Channel %d: %s", channel, warning)
+            return False, warning
+
+        # Write target CC to page 3
+        logging.info("Channel %d: Writing CC [%s] to page 3",
+                     channel, ' '.join(f'{b:02X}' for b in target_cc))
+        try:
+            result = self.fm175xx_reader.write_ntag_data(
+                channel, target_cc, start_page=3)
+            if result != fm175xx_reader.FM175XX_OK:
+                warning = f"Failed to write CC bytes: driver error {result}"
+                logging.error("Channel %d: %s", channel, warning)
+                return False, warning
+        except Exception as e:
+            warning = f"Failed to write CC bytes: {e}"
+            logging.exception("Channel %d: CC write failed", channel)
+            return False, warning
+
+        logging.info("Channel %d: CC bytes written successfully", channel)
+        return True, None
+
     def cmd_FILAMENT_TAG_WRITE(self, gcmd):
-        """Write raw NDEF data to NTAG tag.
+        """Write data to NTAG tag.
+
+        Writes CC bytes (page 3) if they are blank or correctable via OTP,
+        then writes user data starting at page 4. Warns if CC is corrupted
+        beyond repair (OTP bits already set incorrectly).
 
         Required parameters:
           CHANNEL: RFID channel number (0-3)
-          DATA: URL-safe base64 encoded NDEF bytes
+          DATA: URL-safe base64 encoded bytes to write starting at page 4
 
         Example:
-          FILAMENT_TAG_WRITE CHANNEL=0 DATA=4RBtAAMSElAQYXBwbGljYXRpb24vanNvbg...
+          FILAMENT_TAG_WRITE CHANNEL=0 DATA=AxISUBBhcHBsaWNhdGlvbi9qc29u...
         """
         # Check if print is in progress
         print_stats = self.printer.lookup_object('print_stats', None)
@@ -83,6 +150,9 @@ class FilamentTag:
         except Exception as e:
             raise gcmd.error(f"Invalid base64 DATA: {e}")
 
+        if len(data_bytes) < 1:
+            raise gcmd.error("DATA is empty")
+
         # Check if tag is present
         error, info = self.filament_detect.get_a_filament_info(channel)
         if error != FILAMENT_DT_OK:
@@ -100,9 +170,13 @@ class FilamentTag:
                 f"Tag on channel {channel} is M1 type. "
                 "This command only supports NTAG tags.")
 
-        # Write to tag
+        # Ensure CC bytes (page 3) are correct — write if needed
+        _cc_success, cc_warning = self._ensure_cc_bytes(channel, info)
+
+        # Write user data starting at page 4
         try:
-            result = self.fm175xx_reader.write_ntag_data(channel, data_bytes)
+            result = self.fm175xx_reader.write_ntag_data(
+                channel, data_bytes, start_page=4)
             if result != fm175xx_reader.FM175XX_OK:
                 raise gcmd.error(
                     f"Failed to write tag: driver error code {result}")
@@ -118,18 +192,26 @@ class FilamentTag:
         if (error == FILAMENT_DT_OK
                 and verify_info.get('MAIN_TYPE')
                 and verify_info['MAIN_TYPE'] != 'NONE'):
-            gcmd.respond_info(
-                f"Tag written and verified successfully on channel {channel} | "
-                f"Material: {verify_info.get('VENDOR', '')} "
-                f"{verify_info.get('MAIN_TYPE', '')} | "
-                f"{len(data_bytes)} bytes written")
+            msg = (f"Tag written and verified successfully on channel {channel} | "
+                   f"Material: {verify_info.get('VENDOR', '')} "
+                   f"{verify_info.get('MAIN_TYPE', '')} | "
+                   f"{len(data_bytes)} bytes written")
+            if cc_warning:
+                msg += f"\n{cc_warning}"
+            gcmd.respond_info(msg)
         else:
-            gcmd.respond_info(
-                f"Tag written on channel {channel} ({len(data_bytes)} bytes) "
-                "but could not verify content. Please read tag to confirm.")
+            msg = (f"Tag written on channel {channel} ({len(data_bytes)} bytes) "
+                   "but could not verify content. Please read tag to confirm.")
+            if cc_warning:
+                msg += f"\n{cc_warning}"
+            gcmd.respond_info(msg)
 
     def cmd_FILAMENT_TAG_ERASE(self, gcmd):
         """Erase NTAG tag (clears all user data).
+
+        Also writes CC bytes (page 3) if needed, ensuring the tag is
+        NDEF-valid after erase. This is important for initializing
+        fresh blank tags.
 
         Required parameters:
           CHANNEL: RFID channel number (0-3)
@@ -162,14 +244,17 @@ class FilamentTag:
         if card_type == 'M1':
             raise gcmd.error(f"Tag on channel {channel} is M1 type. Cannot erase M1 tags.")
 
-        # Create minimal empty NDEF message
-        # This includes the Capability Container and an empty NDEF TLV
-        # CC (page 3): E1 10 6D 00
-        # Empty NDEF TLV (page 4): 03 00 FE (TLV with empty message, then terminator)
-        empty_ndef = [0xE1, 0x10, 0x6D, 0x00, 0x03, 0x00, 0xFE]
+        # Ensure CC bytes are correct (important for fresh blank tags)
+        _cc_success, cc_warning = self._ensure_cc_bytes(channel, info)
+
+        # Write empty NDEF TLV starting at page 4
+        # Empty NDEF: 03 00 FE (TLV type=NDEF, length=0, terminator)
+        # Pad with zeros to clear old data (124 bytes = 31 pages, pages 4-34)
+        empty_ndef = [0x03, 0x00, 0xFE] + [0x00] * 121
 
         try:
-            result = self.fm175xx_reader.write_ntag_data(channel, empty_ndef)
+            result = self.fm175xx_reader.write_ntag_data(
+                channel, empty_ndef, start_page=4)
             if result != fm175xx_reader.FM175XX_OK:
                 raise gcmd.error(f"Failed to erase tag: driver error code {result}")
         except Exception as e:
@@ -181,14 +266,17 @@ class FilamentTag:
         self._wait_for_detection(channel)
 
         error, verify_info = self.filament_detect.get_a_filament_info(channel)
+        msg = None
         if error == FILAMENT_DT_OK:
-            # Tag should now appear empty or have no valid data
             if not verify_info.get('MAIN_TYPE') or verify_info['MAIN_TYPE'] in ('', 'NONE'):
-                gcmd.respond_info(f"Tag erased successfully on channel {channel}")
+                msg = f"Tag erased successfully on channel {channel}"
             else:
-                gcmd.respond_info(f"Tag erased on channel {channel} (may require manual verification)")
+                msg = f"Tag erased on channel {channel} (may require manual verification)"
         else:
-            gcmd.respond_info(f"Tag erased on channel {channel}")
+            msg = f"Tag erased on channel {channel}"
+        if cc_warning:
+            msg += f"\n{cc_warning}"
+        gcmd.respond_info(msg)
 
 def load_config(config):
     """Load the filament_tag module."""

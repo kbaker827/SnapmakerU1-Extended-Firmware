@@ -232,14 +232,16 @@ async function refreshAllChannels() {
             const channelInfo = detectInfo[i] || {};
             const hasUid = channelInfo.CARD_UID && channelInfo.CARD_UID.length > 0;
             const mainType = channelInfo.MAIN_TYPE && channelInfo.MAIN_TYPE !== 'NONE' ? channelInfo.MAIN_TYPE : null;
-            const tagStatus = channelInfo.TAG_STATUS || null; // 'empty', 'error', or null (valid)
+            const tagStatus = channelInfo.TAG_STATUS || null; // 'empty', 'error', or null
+            const tagCC = channelInfo.TAG_CC || null;
             channelsData.push({
                 channel: i,
                 present: hasUid,
                 uid: channelInfo.CARD_UID || [],
                 card_type: channelInfo.CARD_TYPE || null,
-                empty: hasUid && !mainType && tagStatus === 'empty',
-                malformed: hasUid && !mainType && tagStatus !== 'empty',
+                cc: tagCC,
+                empty: hasUid && !mainType && tagStatus !== 'error',
+                malformed: hasUid && !mainType && tagStatus === 'error',
                 filament: {
                     type: mainType,
                     brand: channelInfo.VENDOR && channelInfo.VENDOR !== 'NONE' ? channelInfo.VENDOR : (channelInfo.MANUFACTURER && channelInfo.MANUFACTURER !== 'NONE' ? channelInfo.MANUFACTURER : null),
@@ -329,6 +331,7 @@ async function refreshSingleChannel(channel) {
         // Find and update the channel in our data
         const hasUid = channelInfo.CARD_UID && channelInfo.CARD_UID.length > 0;
         const tagStatus = channelInfo.TAG_STATUS || null;
+        const tagCC = channelInfo.TAG_CC || null;
         const channelIdx = channelsData.findIndex(c => c.channel === channel);
         if (channelIdx !== -1) {
             channelsData[channelIdx] = {
@@ -336,8 +339,9 @@ async function refreshSingleChannel(channel) {
                 present: hasUid,
                 uid: channelInfo.CARD_UID || [],
                 card_type: channelInfo.CARD_TYPE || null,
-                empty: hasUid && !mainType && tagStatus === 'empty',
-                malformed: hasUid && !mainType && tagStatus !== 'empty',
+                cc: tagCC,
+                empty: hasUid && !mainType && tagStatus !== 'error',
+                malformed: hasUid && !mainType && tagStatus === 'error',
                 filament: filament
             };
         }
@@ -376,6 +380,23 @@ function createChannelCard(channel) {
     const isMalformed = channel.malformed;
     const filament = channel.filament;
 
+    // Collect non-critical warnings for this tag
+    const tagWarnings = [];
+    if (hasTag && channel.cc && channel.card_type === 'NTAG215') {
+        const NTAG215_CC = [0xE1, 0x10, 0x3F, 0x00];
+        const NTAG216_CC = [0xE1, 0x10, 0x6D, 0x00];
+        const ccMatch = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+        if (!ccMatch(channel.cc, NTAG215_CC) && !ccMatch(channel.cc, NTAG216_CC)) {
+            const ccHex = channel.cc.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+            tagWarnings.push(
+                `Warning: Capability Container (CC) mismatch [${ccHex}]. ` +
+                `Expected [E1 10 3F 00] or [E1 10 6D 00]. ` +
+                `CC is write-once (OTP) — the firmware will attempt to correct it on the next write, ` +
+                `but if extra bits are already set, correction may not be possible. ` +
+                `If you experience issues, use a fresh tag.`);
+        }
+    }
+
     // Header
     const header = document.createElement('div');
     header.className = 'channel-header';
@@ -394,10 +415,29 @@ function createChannelCard(channel) {
         badgeClass = 'tag-empty';
         badgeText = 'No Tag';
     }
+
+    // Build the status badge — split with tooltip if there are warnings
+    let statusBadgeHtml;
+    if (tagWarnings.length > 0) {
+        const tooltipLines = tagWarnings.map(w => `<div>${w}</div>`).join('');
+        // Use CSS custom property to set the base color for the split gradient
+        const baseColorVar = getComputedStyle(document.documentElement)
+            .getPropertyValue(`--${badgeClass === 'tag-present' ? 'success' : badgeClass === 'tag-empty-data' ? 'info' : badgeClass === 'tag-error' ? 'warning' : 'secondary'}-color`).trim();
+        statusBadgeHtml = `
+            <span class="badge-tooltip-wrap">
+                <span class="tag-status tag-warning-split" style="--badge-base-color: ${baseColorVar}">
+                    ${badgeText}
+                </span>
+                <span class="badge-tooltip">${tooltipLines}</span>
+            </span>`;
+    } else {
+        statusBadgeHtml = `<span class="tag-status ${badgeClass}">${badgeText}</span>`;
+    }
+
     header.innerHTML = `
         <h3>Extruder ${displayChannel}</h3>
-        <span class="tag-status ${badgeClass}">
-            ${badgeText}
+        <span class="tag-badges">
+            ${statusBadgeHtml}
         </span>
     `;
     card.appendChild(header);
@@ -805,8 +845,13 @@ async function handleWriteTag(e) {
         return;
     }
 
+    // Strip the first 4 bytes (CC / Capability Container) since
+    // FILAMENT_TAG_WRITE writes user data starting at page 4.
+    // CC (page 3) is handled separately by the firmware.
+    const tlvBytes = ndefBytes.slice(4);
+
     // Convert to URL-safe base64 for gcode transport
-    const base64Str = toUrlSafeBase64(ndefBytes);
+    const base64Str = toUrlSafeBase64(tlvBytes);
     const gcode = `FILAMENT_TAG_WRITE CHANNEL=${channel} DATA=${base64Str}`;
 
     try {

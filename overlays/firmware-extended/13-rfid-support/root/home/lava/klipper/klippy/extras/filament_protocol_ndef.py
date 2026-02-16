@@ -41,7 +41,7 @@ def xxd_dump(data, max_lines=16):
 
 def ndef_parse(data_buf):
     if None == data_buf or isinstance(data_buf, (list, bytes, bytearray)) == False:
-        return NDEF_PARAMETER_ERR, [], []
+        return NDEF_PARAMETER_ERR, [], [], []
 
     try:
         data = bytes(data_buf) if isinstance(data_buf, list) else data_buf
@@ -55,10 +55,14 @@ def ndef_parse(data_buf):
 
         data_io = io.BytesIO(data)
 
+        # Find the CC (Capability Container) page
+        # On NTAG tags read from page 0, CC is at byte 12 (page 3)
+        # CC magic is 0xE1, but OTP corruption may set extra bits (e.g. 0xF5)
+        # Check with bitmask: (byte & 0xE1) == 0xE1
         start_offset = 0
         if len(data) > 12 and data[0] != 0xE1:
             for i in range(min(16, len(data) - 4)):
-                if data[i] == 0xE1 and (data[i+1] == 0x10 or data[i+1] == 0x11 or data[i+1] == 0x40):
+                if (data[i] & 0xE1) == 0xE1 and (data[i+1] & 0x10) == 0x10:
                     start_offset = i
                     break
 
@@ -66,8 +70,9 @@ def ndef_parse(data_buf):
             data_io.seek(start_offset)
 
         cc = data_io.read(4)
-        if len(cc) < 4 or cc[0] != 0xE1:
-            return NDEF_PARAMETER_ERR, [], card_uid
+        cc_bytes = list(cc) if len(cc) == 4 else []
+        if len(cc) < 4 or (cc[0] & 0xE1) != 0xE1:
+            return NDEF_PARAMETER_ERR, [], card_uid, cc_bytes
 
         records = []
 
@@ -135,13 +140,13 @@ def ndef_parse(data_buf):
                 data_io.seek(tlv_len, 1)
 
         if not records:
-            return NDEF_NOT_FOUND_ERR, [], card_uid
+            return NDEF_NOT_FOUND_ERR, [], card_uid, cc_bytes
 
-        return NDEF_OK, records, card_uid
+        return NDEF_OK, records, card_uid, cc_bytes
 
     except Exception as e:
         logging.exception("NDEF parsing failed: %s", str(e))
-        return NDEF_ERR, [], []
+        return NDEF_ERR, [], [], []
 
 def parse_color_hex(value):
     try:
@@ -271,18 +276,27 @@ def openspool_parse_payload(payload, card_uid=[]):
         return filament_protocol.FILAMENT_PROTO_ERR, None
 
 def ndef_proto_data_parse(data_buf):
-    error, records, card_uid = ndef_parse(data_buf)
+    error, records, card_uid, cc_bytes = ndef_parse(data_buf)
+
+    # Expected NTAG215 CC: E1 10 3F 00 (NDEF magic, v1.0, 504 bytes, read/write)
+    # Expected NTAG216 CC: E1 10 6D 00 (NDEF magic, v1.0, 872 bytes, read/write)
+    NTAG215_CC = [0xE1, 0x10, 0x3F, 0x00]
+    NTAG216_CC = [0xE1, 0x10, 0x6D, 0x00]
+    cc_valid = cc_bytes in (NTAG215_CC, NTAG216_CC)
+    if cc_bytes and not cc_valid:
+        logging.warning("TAG CC mismatch: got [%s], expected NTAG215 [E1 10 3F 00] or NTAG216 [E1 10 6D 00]",
+                        ' '.join(f'{b:02X}' for b in cc_bytes))
 
     if error != NDEF_OK:
         if error == NDEF_NOT_FOUND_ERR:
             logging.info(f"NDEF parse: valid structure but no records (empty tag)")
-            return filament_protocol.FILAMENT_PROTO_ERR, _create_minimal_info(card_uid, tag_status='empty')
+            return filament_protocol.FILAMENT_PROTO_ERR, _create_minimal_info(card_uid, tag_status='empty', cc_bytes=cc_bytes)
         logging.error(f"NDEF parse failed: NDEF parsing error (code: {error}), returning partial info with UID only")
-        return filament_protocol.FILAMENT_PROTO_ERR, _create_minimal_info(card_uid, tag_status='error')
+        return filament_protocol.FILAMENT_PROTO_ERR, _create_minimal_info(card_uid, tag_status='error', cc_bytes=cc_bytes)
 
     if not records:
         logging.info("NDEF parse: no records found (empty tag)")
-        return filament_protocol.FILAMENT_PROTO_ERR, _create_minimal_info(card_uid, tag_status='empty')
+        return filament_protocol.FILAMENT_PROTO_ERR, _create_minimal_info(card_uid, tag_status='empty', cc_bytes=cc_bytes)
 
     for record in records:
         mime_type = record['mime_type']
@@ -295,8 +309,9 @@ def ndef_proto_data_parse(data_buf):
                 logging.error(f"OpenSpool parse failed: Payload parsing error (code: {error_code})")
                 continue
             else:
-                # Set the extracted UID
                 info['CARD_UID'] = card_uid
+                if cc_bytes:
+                    info['TAG_CC'] = cc_bytes
                 logging.info(f"OpenSpool parse success: vendor={info.get('VENDOR')}, type={info.get('MAIN_TYPE')}, uid={':'.join(f'{b:02X}' for b in card_uid) if card_uid else 'none'}")
                 return error_code, info
 
@@ -304,17 +319,20 @@ def ndef_proto_data_parse(data_buf):
             logging.warning(f"Skipping unsupported MIME type '{mime_type}'")
 
     logging.error("NDEF parse failed: No supported records found, returning partial info with UID only")
-    return filament_protocol.FILAMENT_PROTO_SIGN_CHECK_ERR, _create_minimal_info(card_uid, tag_status='error')
+    return filament_protocol.FILAMENT_PROTO_SIGN_CHECK_ERR, _create_minimal_info(card_uid, tag_status='error', cc_bytes=cc_bytes)
 
-def _create_minimal_info(card_uid=None, tag_status='error'):
+def _create_minimal_info(card_uid=None, tag_status='error', cc_bytes=None):
     """Create a minimal filament info dict with defaults for error cases.
 
     tag_status: 'empty' for blank/erased tags, 'error' for invalid/corrupt data.
+    cc_bytes: Raw CC bytes from page 3 (list of 4 ints), if available.
     """
     info = copy.copy(filament_protocol.FILAMENT_INFO_STRUCT)
     if card_uid:
         info['CARD_UID'] = card_uid
     info['TAG_STATUS'] = tag_status
+    if cc_bytes:
+        info['TAG_CC'] = cc_bytes
     return info
 
 if __name__ == '__main__':
