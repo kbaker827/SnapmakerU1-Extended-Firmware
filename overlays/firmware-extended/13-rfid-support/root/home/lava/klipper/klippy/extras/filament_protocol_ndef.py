@@ -30,10 +30,11 @@ def ndef_parse(data_buf):
     if None == data_buf or isinstance(data_buf, (list, bytes, bytearray)) == False:
         return NDEF_PARAMETER_ERR, [], []
 
+    card_uid = []
+
     try:
         data = bytes(data_buf) if isinstance(data_buf, list) else data_buf
 
-        card_uid = []
         if len(data) >= 8:
             card_uid = [data[0], data[1], data[2], data[4], data[5], data[6], data[7]]
 
@@ -128,7 +129,7 @@ def ndef_parse(data_buf):
 
     except Exception as e:
         logging.exception("NDEF parsing failed: %s", str(e))
-        return NDEF_ERR, [], []
+        return NDEF_ERR, [], card_uid
 
 def parse_color_hex(value):
     try:
@@ -237,12 +238,10 @@ def ndef_proto_data_parse(data_buf):
     error, records, card_uid = ndef_parse(data_buf)
 
     if error != NDEF_OK:
-        logging.error(f"NDEF parse failed: NDEF parsing error (code: {error})")
-        return filament_protocol.FILAMENT_PROTO_ERR, None
-
-    if not records:
-        logging.error("NDEF parse failed: No records found")
-        return filament_protocol.FILAMENT_PROTO_ERR, None
+        info = copy.copy(filament_protocol.FILAMENT_INFO_STRUCT)
+        info['CARD_UID'] = card_uid
+        logging.error(f"NDEF parse failed: NDEF parsing error (code: {error}). Treating as a generic tag. Card UID: {card_uid}")
+        return filament_protocol.FILAMENT_PROTO_OK, info
 
     for record in records:
         mime_type = record['mime_type']
@@ -261,8 +260,11 @@ def ndef_proto_data_parse(data_buf):
         else:
             logging.warning(f"Skipping unsupported MIME type '{mime_type}'")
 
-    logging.error("NDEF parse failed: No supported records found")
-    return filament_protocol.FILAMENT_PROTO_SIGN_CHECK_ERR, None
+    info = copy.copy(filament_protocol.FILAMENT_INFO_STRUCT)
+    info['CARD_UID'] = card_uid
+
+    logging.error(f"NDEF parse failed: No supported records found. Treating as a generic tag. Card UID: {card_uid}")
+    return filament_protocol.FILAMENT_PROTO_OK, info
 
 if __name__ == '__main__':
     import sys
