@@ -39,37 +39,6 @@ def xxd_dump(data, max_lines=16):
 
     return '\n'.join(lines)
 
-def extract_ntag_uid(data_buf):
-    """Extract 7-byte UID from NTAG card data.
-
-    NTAG215 memory structure:
-    - Page 0 (bytes 0-3): UID0, UID1, UID2, BCC0
-    - Page 1 (bytes 4-7): UID3, UID4, UID5, UID6, BCC1
-
-    Returns list of 7 UID bytes, or empty list if data is invalid.
-    """
-    if not data_buf or len(data_buf) < 8:
-        return []
-
-    try:
-        # Convert to list if needed
-        data = list(data_buf) if not isinstance(data_buf, list) else data_buf
-
-        # Extract 7-byte UID from pages 0-1
-        uid = [
-            data[0],  # UID0
-            data[1],  # UID1
-            data[2],  # UID2
-            data[4],  # UID3
-            data[5],  # UID4
-            data[6],  # UID5
-            data[7],  # UID6
-        ]
-
-        return uid
-    except (IndexError, TypeError):
-        return []
-
 def ndef_parse(data_buf):
     if None == data_buf or isinstance(data_buf, (list, bytes, bytearray)) == False:
         return NDEF_PARAMETER_ERR, [], []
@@ -302,12 +271,7 @@ def openspool_parse_payload(payload, card_uid=[]):
         return filament_protocol.FILAMENT_PROTO_ERR, None
 
 def ndef_proto_data_parse(data_buf):
-    # Always extract UID first so it's available even if NDEF parsing fails
-    card_uid = extract_ntag_uid(data_buf)
-
-    error, records, parsed_uid = ndef_parse(data_buf)
-    if parsed_uid:
-        card_uid = parsed_uid
+    error, records, card_uid = ndef_parse(data_buf)
 
     if error != NDEF_OK:
         if error == NDEF_NOT_FOUND_ERR:
