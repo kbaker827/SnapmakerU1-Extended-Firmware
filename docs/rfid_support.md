@@ -122,43 +122,7 @@ Use the **NFC Tools** app (iOS/Android) to inspect tags:
 
 ## G-code Commands for Tag Management
 
-The extended firmware includes commands to read, write, and update RFID tags directly from G-code (available in version with tag writing support).
-
-### FILAMENT_TAG_READ - Read Complete Tag Information
-
-Display all information stored on an RFID tag.
-
-**Syntax:**
-```gcode
-FILAMENT_TAG_READ [CHANNEL=<0-3>]
-```
-
-**Parameters:**
-- `CHANNEL` - Filament channel (0-3, default: 0)
-
-**Example:**
-```gcode
-FILAMENT_TAG_READ CHANNEL=0
-```
-
-**Output:**
-```
-=== RFID Tag Info - Channel 0 ===
-Tag Type: NTAG (A)
-UID: 04:12:34:56:78:90:00
-
-Filament:
-  Brand: Generic
-  Type: PLA
-  Diameter: 1.75 mm
-  Density: 1.24 g/cm³
-  Color: #FF0000
-
-Temperature:
-  Min Extruder: 190°C
-  Max Extruder: 220°C
-  Bed: 60°C
-```
+The extended firmware includes commands to read, write, and update RFID tags directly from G-code.
 
 ### FILAMENT_TAG_WRITE_OPENSPOOL - Write New NTAG Tag
 
@@ -217,9 +181,6 @@ FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PLA BRAND="Generic" SUBTYPE="Silk" C
 
 # Tag with initial weight tracking (1kg spool)
 FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PETG BRAND="Generic" COLOR=FF5500 WEIGHT=1000 MIN_TEMP=230 MAX_TEMP=250 BED_MIN_TEMP=70 BED_MAX_TEMP=85
-
-# Using legacy BED_TEMP parameter (backward compatible)
-FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PLA BRAND="Generic" COLOR=FFFFFF BED_TEMP=60
 ```
 
 **Material Density Defaults:**
@@ -259,33 +220,6 @@ FILAMENT_TAG_ERASE CHANNEL=0 CONFIRM=1
 - Requires CONFIRM=1 parameter to prevent accidental erasure
 - Writes empty NDEF structure, leaving tag ready for new data
 
-### Example Workflows
-
-**Workflow 1: Program a Fresh NTAG Tag**
-```gcode
-# 1. Insert blank NTAG tag
-# 2. Read to confirm it's NTAG
-FILAMENT_TAG_READ CHANNEL=0
-
-# 3. Write complete data
-FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PLA BRAND="Polymaker" COLOR=FF5500 DIAMETER=1.75 MIN_TEMP=190 MAX_TEMP=220 BED_TEMP=60
-
-# 4. Verify write
-FILAMENT_TAG_READ CHANNEL=0
-```
-
-**Workflow 2: Reprogram an NTAG Tag**
-```gcode
-# 1. Erase existing data
-FILAMENT_TAG_ERASE CHANNEL=0 CONFIRM=1
-
-# 2. Write new data
-FILAMENT_TAG_WRITE_OPENSPOOL CHANNEL=0 TYPE=PETG BRAND="Generic" COLOR=0000FF DIAMETER=1.75 MIN_TEMP=220 MAX_TEMP=250 BED_TEMP=80
-
-# 3. Verify
-FILAMENT_TAG_READ CHANNEL=0
-```
-
 ## Web UI - RFID Tag Manager
 
 The extended firmware includes a web-based RFID Tag Manager accessible at `/rfid/` (e.g., `http://yourprinter.local/rfid/`).
@@ -300,42 +234,6 @@ The extended firmware includes a web-based RFID Tag Manager accessible at `/rfid
 - **Color picker** - Visual color selection with transparency support
 - **Multicolor support** - Add up to 5 colors for rainbow/multicolor filament
 
-### How to Access
-
-1. Open Fluidd or Mainsail in your web browser
-2. Navigate to `http://yourprinter.local/rfid/` (replace with your printer's hostname)
-3. The interface will automatically connect to Moonraker and display current tag status
-
-**Alternative:** Access via Fluidd/Mainsail bookmark or direct URL.
-
-### Using the Web UI
-
-**View Tag Status:**
-- Extruder cards show tag presence, UID, material, color, and temperature settings
-- Automatically refreshes when tags are inserted/removed
-- Click "Refresh All Extruders" to manually update
-
-**Create a New Tag:**
-1. Insert blank NTAG215/216 tag into extruder
-2. Click **"Create"** button on the extruder card
-3. Fill in material type, brand, color, and temperature settings
-4. (Optional) Add additional colors for multicolor filament
-5. Click **"Write Tag"**
-6. Tag data is validated and written via Klipper gcode commands
-7. Status updates automatically
-
-**Update an Existing Tag:**
-1. Click **"Update"** button on extruder card with NTAG tag
-2. Form auto-populates with current tag data
-3. Modify fields as needed
-4. Click **"Write Tag"** to save changes
-
-**Erase a Tag:**
-1. Click **"Erase"** button on extruder card
-2. Confirm deletion by checking the box
-3. Click **"Erase Tag"**
-4. Tag data is cleared, leaving empty NDEF structure
-
 ### Architecture
 
 The web UI communicates directly with Klipper via the Moonraker websocket API:
@@ -344,15 +242,12 @@ The web UI communicates directly with Klipper via the Moonraker websocket API:
 Web UI → Moonraker Websocket → Klipper filament_tag module → FM175XX RFID reader → NTAG tag
 ```
 
-**No REST API required** - Tag operations use native Klipper gcode commands (`FILAMENT_TAG_WRITE_OPENSPOOL`, `FILAMENT_TAG_ERASE`) sent via websocket.
-
 **Static file serving** - UI files served by nginx from `/home/lava/www/rfid-manager/` via `/rfid/` location alias.
 
 ### Supported Tags
 
 - ✅ **NTAG215/216** - Full read/write support
 - ❌ **Mifare Classic 1K** - Read-only (cannot write M1 tags)
-- ❌ **ISO15693/SLIX2** - Not supported by hardware
 
 ## Troubleshooting
 
@@ -361,11 +256,3 @@ Web UI → Moonraker Websocket → Klipper filament_tag module → FM175XX RFID 
 - Position tag within 1-3cm of reader antenna
 - Manually read tag: `FILAMENT_DT_UPDATE CHANNEL=<n>` then `FILAMENT_DT_QUERY CHANNEL=<n>`
 - Check `klipper.log` for detection messages
-
-**OpenPrintTag tags don't work:**
-- Expected - OpenPrintTag uses ISO15693 which is not supported by U1 hardware
-- Use NTAG tags with OpenSpool format instead
-
-**NTAG tags only work on extended firmware:**
-- Basic and original firmware only support Mifare Classic 1K with Snapmaker proprietary format
-- Extended firmware adds NTAG215/216 support
