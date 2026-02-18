@@ -3,6 +3,7 @@ import io
 import json
 import logging
 from . import filament_protocol
+from . import filament_tag
 
 NDEF_OK = 0
 NDEF_ERR = -1
@@ -278,11 +279,7 @@ def openspool_parse_payload(payload, card_uid=[]):
 def ndef_proto_data_parse(data_buf):
     error, records, card_uid, cc_bytes = ndef_parse(data_buf)
 
-    # Expected NTAG215 CC: E1 10 3F 00 (NDEF magic, v1.0, 504 bytes, read/write)
-    # Expected NTAG216 CC: E1 10 6D 00 (NDEF magic, v1.0, 872 bytes, read/write)
-    NTAG215_CC = [0xE1, 0x10, 0x3F, 0x00]
-    NTAG216_CC = [0xE1, 0x10, 0x6D, 0x00]
-    cc_valid = cc_bytes in (NTAG215_CC, NTAG216_CC)
+    cc_valid = cc_bytes in filament_tag.VALID_CC_VALUES
     if cc_bytes and not cc_valid:
         logging.warning("TAG CC mismatch: got [%s], expected NTAG215 [E1 10 3F 00] or NTAG216 [E1 10 6D 00]",
                         ' '.join(f'{b:02X}' for b in cc_bytes))
