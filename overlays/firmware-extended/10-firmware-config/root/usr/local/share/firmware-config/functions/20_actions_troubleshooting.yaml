@@ -10,6 +10,47 @@ actions:
         background: false
         message: "System status:"
 
+      check-for-updates:
+        label: Check for Updates
+        description: Compare the installed build against the latest GitHub release and show the download URL.
+        cmd:
+          - bash
+          - -c
+          - |
+            CURRENT_BUILD=$(cat /etc/BUILD_VERSION 2>/dev/null | tr -d '[:space:]' || echo "unknown")
+            CURRENT_PROFILE=$(cat /etc/BUILD_PROFILE 2>/dev/null | tr -d '[:space:]' || echo "unknown")
+            echo "Installed build : $CURRENT_BUILD"
+            echo "Profile         : $CURRENT_PROFILE"
+            echo ""
+            echo "Fetching latest release from GitHub..."
+            RESPONSE=$(/usr/local/bin/curl -sf --max-time 10 \
+              "https://api.github.com/repos/paxx12/SnapmakerU1-Extended-Firmware/releases/latest")
+            if [ -z "$RESPONSE" ]; then
+              echo "ERROR: Could not reach GitHub. Check your network connection."
+              exit 1
+            fi
+            TAG=$(echo "$RESPONSE" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+            NAME=$(echo "$RESPONSE" | grep -o '"name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+            echo "Latest release  : $NAME ($TAG)"
+            echo ""
+            PROFILE_KEY=$(echo "$CURRENT_PROFILE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z].*$//')
+            BIN_URL=$(echo "$RESPONSE" | grep -o '"browser_download_url": *"[^"]*\.bin"' | \
+              grep -i "$PROFILE_KEY" | head -1 | cut -d'"' -f4)
+            if [ -z "$BIN_URL" ]; then
+              BIN_URL=$(echo "$RESPONSE" | grep -o '"browser_download_url": *"[^"]*\.bin"' | \
+                head -1 | cut -d'"' -f4)
+            fi
+            if [ -n "$BIN_URL" ]; then
+              echo "Download URL    :"
+              echo "$BIN_URL"
+              echo ""
+              echo "To upgrade: copy the URL above and paste it into"
+              echo "'Firmware Upgrade (URL)' on this page."
+            else
+              echo "(No .bin asset found in this release)"
+            fi
+        message: "Checking for updates..."
+
       collect-logs:
         label: Collect System Logs
         description: Bundle and download a system log archive for troubleshooting.

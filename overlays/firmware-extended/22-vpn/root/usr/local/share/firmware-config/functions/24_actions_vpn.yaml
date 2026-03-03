@@ -6,3 +6,12 @@ actions:
         description: Show current Tailscale connection status and IP address.
         cmd: [/usr/local/bin/tailscale, status]
         message: "Checking Tailscale status..."
+
+      tailscale-login:
+        label: Tailscale Login
+        description: Authenticate or re-authenticate this printer with your Tailscale network. If a login URL appears, open it on any device to connect.
+        cmd:
+          - bash
+          - -c
+          - /usr/local/bin/tailscale up --timeout=60s 2>&1
+        message: "Waiting for Tailscale authentication..."
