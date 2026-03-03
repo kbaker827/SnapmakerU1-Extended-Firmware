@@ -35,15 +35,16 @@ SRC=$(ls -d "$BUILDDIR"/rsync-*)
 echo ">> Cross-compiling rsync for aarch64..."
 (
   cd "$SRC"
+  # rsync 3.4.1 uses --disable-* flags (not --without-*) for optional features.
+  # OpenSSL is auto-detected via -lcrypto; no --with-openssl flag needed.
   ./configure \
     --host=aarch64-linux-gnu \
     CC=aarch64-linux-gnu-gcc \
     CFLAGS="-O2 -I/usr/include/aarch64-linux-gnu" \
     LDFLAGS="-L/usr/lib/aarch64-linux-gnu" \
-    --with-openssl \
-    --without-zstd \
-    --without-lz4 \
-    --without-xxhash \
+    --disable-xxhash \
+    --disable-zstd \
+    --disable-lz4 \
     --disable-debug
   make -j"$(nproc)" rsync
 )
