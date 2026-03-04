@@ -4,7 +4,7 @@ settings:
     items:
       rfid:
         label: Filament Detection
-        help_url: https://snapmakeru1-extended-firmware.pages.dev/rfid_support#alternative-detection-system
+        help_url: https://snapmakeru1-extended-firmware.pages.dev/rfid_support#alternative-detection-systems
         description: Set how filament is detected.
         get_cmd:
           - /usr/local/bin/extended-config.py

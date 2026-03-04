@@ -13,8 +13,20 @@ _FM175XX_READER = "/home/lava/klipper/klippy/extras/fm175xx_reader.py"
 
 
 def _snapmaker_key():
-    with open(_FM175XX_READER, "r") as f:
-        m = re.search(r'FM175XX_M1_CARD_HKDF_SALT_KEY_B\s*=\s*b"([^"]+)"', f.read())
+    try:
+        with open(_FM175XX_READER, "r") as f:
+            content = f.read()
+    except OSError as e:
+        print(f"Error: cannot read Klipper RFID driver at {_FM175XX_READER}: {e}", file=sys.stderr)
+        sys.exit(1)
+    m = re.search(r'FM175XX_M1_CARD_HKDF_SALT_KEY_B\s*=\s*b"([^"]+)"', content)
+    if m is None:
+        print(
+            f"Error: Snapmaker HKDF key not found in {_FM175XX_READER}. "
+            "The firmware driver may have changed.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     return m.group(1).encode().hex()
 
 

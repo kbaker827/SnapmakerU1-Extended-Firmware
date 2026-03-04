@@ -1,6 +1,6 @@
 #!/bin/sh
 
-PIDFILE="/var/run/filament-detect.pid"
+PIDFILE="/var/run/openrfid.pid"
 EXTENDED2_CFG="/oem/printer_data/config/extended/extended2.cfg"
 
 start() {
