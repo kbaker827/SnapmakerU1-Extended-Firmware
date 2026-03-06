@@ -68,7 +68,7 @@ Heavily expanded firmware with extensive features and customization. Includes al
 **Klipper Customization:**
 
 - [Klipper and Moonraker Custom Includes](klipper_includes.md) - Add custom configuration files via Fluidd/Mainsail
-- [Klipper Tweaks](tweaks.md) - Experimental [TMC driver optimizations](tweaks.md#tmc-autotune), [reduced current](tweaks.md#tmc-reduced-current), and [object processing for adaptive mesh](tweaks.md#object-processing-for-adaptive-mesh)
+- [Klipper Tweaks](tweaks.md) - [Cancel Individual Objects](tweaks.md#cancel-individual-objects), experimental [TMC driver optimizations](tweaks.md#tmc-autotune), [reduced current](tweaks.md#tmc-reduced-current), and [object processing for adaptive mesh](tweaks.md#object-processing-for-adaptive-mesh)
 - [AFC-Lite Stub](afc-lite.md) - Experimental AFC UI compatibility layer for Fluidd/Mainsail
 - [RFID Filament Tag Support](rfid_support.md) - NTAG213/215/216 support for OpenSpool format
 

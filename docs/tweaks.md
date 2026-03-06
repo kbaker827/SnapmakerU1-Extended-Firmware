@@ -4,9 +4,37 @@ title: Klipper Tweaks
 
 # Klipper Tweaks
 
-Advanced experimental tweaks for Klipper stepper motor driver configuration. These settings can **only** be configured via the [Firmware Configuration](firmware_config.md) web interface under **Settings → Tweaks**.
+Advanced experimental tweaks for Klipper configuration. These settings can **only** be configured via the [Firmware Configuration](firmware_config.md) web interface under **Settings → Tweaks**.
 
-> **Warning**: These are experimental features that modify low-level stepper driver parameters. Use with caution and monitor your printer carefully after enabling.
+> **Warning**: These are experimental features. Use with caution and monitor your printer carefully after enabling.
+
+## Cancel Individual Objects
+
+Enables the Klipper `[exclude_object]` module so you can cancel individual objects during a multi-object print directly from the Fluidd or Mainsail web interface — without cancelling the entire print.
+
+**What it does:**
+- Activates Klipper's built-in exclude_object module
+- Adds a per-object cancel button to the Fluidd/Mainsail print status panel
+- Requires no Moonraker-side processing (no file upload delay)
+
+**Slicer setup required:**
+Your slicer must be configured to label objects in the gcode output. Enable the relevant option before slicing:
+
+| Slicer | Setting location | Option name |
+|---|---|---|
+| OrcaSlicer | Print Settings → Others | **Label objects** |
+| Bambu Studio | Print Settings → Others | **Label objects** |
+| PrusaSlicer | Print Settings → Output options | **Label objects** |
+| Cura | Marketplace plugin | **Exclude Objects** plugin |
+
+Prints sliced without object labels will still print normally — the cancel buttons simply won't appear.
+
+**Recommendation:**
+- **Use this instead of** the "Object Processing for Adaptive Mesh" tweak unless you also need adaptive mesh — this approach has zero upload-time overhead
+- Safe to enable permanently; no downside for prints that don't use it
+
+**Configuration:**
+This feature can **only** be configured via Firmware Configuration web interface. Manual configuration is not supported.
 
 ## TMC AutoTune
 
@@ -100,6 +128,7 @@ Changes take effect immediately after Klipper restarts (no reboot required).
 ## Technical Details
 
 These tweaks work by adding or removing configuration files from `/oem/printer_data/config/extended/`:
+- `klipper/exclude_object.cfg` - Cancel Individual Objects (`[exclude_object]`)
 - `klipper/tmc_autotune.cfg` - TMC AutoTune parameters
 - `klipper/tmc_current.cfg` - Reduced current settings
 - `moonraker/object_processing.cfg` - Moonraker object processing settings
